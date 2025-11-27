@@ -10,7 +10,7 @@ NUM_MC_SAMPLES = 500000
 N_SERVERS = 5
 # 总任务到达率 (lambda)
 LAMBDA_TOTAL = 0.1  # 例如，每秒 0.1 个任务到达整个系统
-# M/M/n 中单个服务器的服务率 (mu_single)
+# 单个服务器的服务率 (mu)
 MU_SINGLE = 0.1  # 例如，每个服务器每秒服务 0.1 个任务
 
 # 稳定性检查: 总服务能力 (n*mu) 必须大于总到达率 (lambda)
@@ -65,27 +65,26 @@ def simulate_mmc_sojourn(lam, mu, n, M):
 
 
 # ==========================================
-# 3. n x M/M/1 仿真函数 (分布式队列，服务器速率为 n*mu)
+# 3. n x M/M/1 仿真函数 (分布式队列)
 # ==========================================
 
-def simulate_n_mm1_sojourn(lam_total, mu_server, n, M):
+def simulate_n_mm1_sojourn(lam_total, mu, n, M):
     """
     模拟 n 个独立的 M/M/1 队列（分布式队列），总任务流被平均分配。
     lam_total: 总到达率
-    mu_server: 每个 M/M/1 服务器的服务率 (在新场景中为 n*mu_single)
+    mu: 单个服务器的服务率
     n: 服务器数量
     M: 样本数量（总任务数）
     """
     # 关键：每个 M/M/1 队列的到达率 lam_prime = lam_total / n
-    lam_prime = lam_total
+    lam_prime = lam_total / n
 
-    # 模拟 M 个任务在其中一个 M/M/1 系统中的驻留时间。
+    # 模拟 M 个任务在其中一个 M/M/1 系统中的驻留时间，
+    # 因为所有 n 个 M/M/1 系统是独立的且参数相同，它们的 T_s 分布是完全一样的。
 
     # 随机输入：到达间隔和服务时间
     inter_arrival_times = np.random.exponential(1.0 / lam_prime, M)
-
-    # 重点：服务时间基于 mu_server (新的 n*mu 速率)
-    service_times = np.random.exponential(1.0 / mu_server, M)
+    service_times = np.random.exponential(1.0 / mu, M)
 
     # M/M/1 只需要一个服务器状态跟踪
     server_available_time = 0.0
@@ -117,13 +116,12 @@ def simulate_n_mm1_sojourn(lam_total, mu_server, n, M):
 # 4. 主执行与结果计算
 # ==========================================
 
-# 1. M/M/n 仿真 (使用 mu_single)
+# 1. M/M/n 仿真
 Ts_mmc = simulate_mmc_sojourn(LAMBDA_TOTAL, MU_SINGLE, N_SERVERS, NUM_MC_SAMPLES)
 
-# 2. n x M/M/1 仿真 (使用 mu_single * N_SERVERS)
-# 关键: 设置每个 M/M/1 服务器的服务率为 M/M/n 中单个服务器的 N_SERVERS 倍
-MU_NEW_MM1 = MU_SINGLE * N_SERVERS
-Ts_n_mm1 = simulate_n_mm1_sojourn(LAMBDA_TOTAL, MU_NEW_MM1, N_SERVERS, NUM_MC_SAMPLES)
+# 2. n x M/M/1 仿真
+# 每个 M/M/1 系统处理 LAMBDA_TOTAL / N_SERVERS 的到达率
+Ts_n_mm1 = simulate_n_mm1_sojourn(LAMBDA_TOTAL, MU_SINGLE, N_SERVERS, NUM_MC_SAMPLES)
 
 
 # 计算 CDF (累积分布函数)
@@ -144,30 +142,28 @@ Ts_n_mm1_sorted, cdf_n_mm1 = calculate_cdf(Ts_n_mm1)
 
 plt.figure(figsize=(10, 6))
 
-# 计算利用率
-rho_mmc = LAMBDA_TOTAL / (N_SERVERS * MU_SINGLE)
-rho_new_mm1 = (LAMBDA_TOTAL / N_SERVERS) / MU_NEW_MM1
-
 # 绘制 M/M/n 结果
 plt.plot(Ts_mmc_sorted, cdf_mmc,
-         label=f'M/M/{N_SERVERS} (集中式, $\\rho={rho_mmc:.3f}$)',
+         label=f'M/M/{N_SERVERS} (Cooperative, $\\rho={LAMBDA_TOTAL / (N_SERVERS * MU_SINGLE):.2f}$)',
          color='blue',
          linewidth=2)
 
 # 绘制 n x M/M/1 结果
+rho_prime = (LAMBDA_TOTAL / N_SERVERS) / MU_SINGLE
 plt.plot(Ts_n_mm1_sorted, cdf_n_mm1,
-         label=f'${N_SERVERS}$ x M/M/1 (分布式, 5倍速, $\\rho\'={rho_new_mm1:.3f}$)',
+         label=f'${N_SERVERS}$ x M/M/1 (Non-Cooperative, $\\rho\'={rho_prime:.2f}$)',
          color='red',
          linestyle='--',
          linewidth=2)
 
-plt.title('驻留时间 CDF 对比: M/M/n vs. 加速的 n x M/M/1')
-plt.xlabel('驻留时间 $T_s$ (s)')
-plt.ylabel(r'CDF $P(T_s \leq t)$')  # 已修复 LaTeX 兼容性问题
+plt.title('Comparison of Sojourn Time CDF: M/M/n vs. n x M/M/1')
+plt.xlabel('Sojourn Time $T_s$ (s)')
+# 修复 Matplotlib LaTeX 兼容性问题：使用 r'' 原始字符串和 \leq 替代 \le
+plt.ylabel(r'CDF $P(T_s \leq t)$')
 plt.legend()
 plt.grid(True, linestyle=':', alpha=0.7)
 
-# 限制 x 轴，以突出分布的差异
+# 限制 x 轴，以突出分布的差异（通常 M/M/n 的尾部更短）
 max_time = np.max([Ts_mmc_sorted[int(0.99 * NUM_MC_SAMPLES)], Ts_n_mm1_sorted[int(0.99 * NUM_MC_SAMPLES)]]) * 1.5
 plt.xlim(0, max_time)
 plt.ylim(0, 1.05)
