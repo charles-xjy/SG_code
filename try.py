@@ -211,7 +211,6 @@ def plot_P_TC_multiple_mu(H_list, N_sat, gamma_deg, Mu_list, K_samples=50000, N_
     # 确保 X 轴刻度清晰
     plt.xticks(H_list)
     plt.ylim(0, 1.05)  # 概率范围
-    plt.savefig('task_completion_prob_vs_H_multiple_mu.png')
     plt.show()
 
     # --- 打印结果表格 ---
