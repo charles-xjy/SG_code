@@ -1,7 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import warnings
-import pandas as pd
 
 # --- 1. 物理常量和系统参数 ---
 G = 6.67430e-11

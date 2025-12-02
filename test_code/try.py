@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import math  # <-- 修复：导入 math 模块
 
 # ==========================================
@@ -8,20 +7,21 @@ import math  # <-- 修复：导入 math 模块
 R_earth = 6371e3  # 地球半径 (m)
 G = 6.67430e-11  # 万有引力常数
 M_earth = 5.972e24  # 地球质量 (kg)
-
 # 论文推断参数
 h = 1000e3  # 轨道高度 1000 km
-gamma_deg = 90  # 波束宽度 100度
+gamma_deg = 70  # 波束宽度 100度
 gamma = np.radians(gamma_deg)
 
 # 仿真变量
-mu_range = np.linspace(0.010, 0.024, 30)
-N_values = [200, 400, 800, 1600]
+mu = 0.03
+N_values = 1000
 
 # 排队论参数 (推断)
-n_servers = 3  # 服务节点数 n
-lam = 0.0195  # 任务到达率 lambda
-
+lam = 0.08  # 任务到达率 lambda
+n_servers = int(np.ceil(lam / mu))
+if n_servers * mu == lam:
+    n_servers += 1
+print(f"总到达率 λ={lam:.2f}, 单服务率 μ={mu:.2f}, 最小稳定 N={n_servers}")
 # 数值积分参数
 PHI_POINTS = 500  # 内部积分 (F_Tab) 的采样点数
 T_POINTS = 800  # 外部积分 (P_Completion) 的采样点数
@@ -87,14 +87,11 @@ def cdf_delta_term(t, phi, phi_max_val, omega_val):
 
 def calculate_access_time_cdf(t, N, phi_grid):
     # 公式 (10) - 使用梯形法则手动积分
-
     if t >= max_possible_time:
         return 1.0
-
     p_cond = cdf_delta_term(t, phi_grid, phi_max, omega)
     pdf_val = pdf_phi0(phi_grid, N)
     integrand_values = p_cond * pdf_val
-
     # 修复：使用 np.trapezoid 替代 np.trapz
     result = np.trapezoid(integrand_values, phi_grid)
     return result
@@ -117,7 +114,7 @@ def get_pi_n(n, rho, pi0):
     return ((n * rho) ** n / math.factorial(n)) * pi0
 
 
-def pdf_sojourn_time(t, mu, n, lam):
+def mmn_pdf_sojourn_time(t, mu, n, lam):
     # M/M/n 驻留时间 (Sojourn Time) PDF, f_Ts(t)
     # 公式 (16)
     rho = lam / (n * mu)
@@ -144,6 +141,11 @@ def pdf_sojourn_time(t, mu, n, lam):
     return np.clip(pdf_val, 0, None)
 
 
+def mm1_pdf_sojourn_time(t, mu, lam):
+    # M/M/1 驻留时间 (Sojourn Time) PDF, f_Ts(t)
+    return np.exp(-(mu - lam) * t) * (mu - lam)
+
+
 # ==========================================
 # 4. 主计算循环 (Main Loop)
 # ==========================================
@@ -153,54 +155,19 @@ results = {}
 phi_grid = np.linspace(0, phi_max, PHI_POINTS)
 # 预先生成 t 积分网格 (外层积分)
 t_grid = np.linspace(0, max_possible_time, T_POINTS)
-
-for N in N_values:
-    probs = []
-
-    # 预计算 F_Tab(t) 对 grid points t 的值
-    F_Tab_grid = np.array([calculate_access_time_cdf(t, N, phi_grid) for t in t_grid])
-
-    for mu in mu_range:
-        # 检查系统稳定性
-        rho = lam / (n_servers * mu)
-        if rho >= 1.0:
-            probs.append(0.0)
-            continue
-
-        # 1. 计算 f_Ts(t) 对 grid points t 的值
-        f_Ts_grid = pdf_sojourn_time(t_grid, mu, n_servers, lam)
-
-        # 2. 计算任务完成概率的被积函数
-        integrand_values = F_Tab_grid * f_Ts_grid
-
-        # 3. 使用梯形法则进行最终积分
-        prob = np.trapezoid(integrand_values, t_grid)
-        probs.append(1 - prob)
-
-    results[N] = probs
-
-# ==========================================
-# 5. 绘图 (Plotting)
-# ==========================================
-
-plt.figure()
-markers = ['^', '>', '<', 'o']
-
-for i, N in enumerate(N_values):
-    plt.plot(mu_range, results[N],
-             marker=markers[i],
-             markersize=6,
-             label=f'N = {N}',
-             linewidth=1.5)
-
-plt.title(r'CDF of timely task completion (Fig. 5 Reproduction)')
-plt.xlabel(r'Average service rate ($\mu$)')
-plt.ylabel('CDF of timely task completion')
-plt.legend(loc='upper left')
-plt.grid(True, which='both', linestyle='--', alpha=0.7)
-
-# plt.xlim(0.0095, 0.0245)
-# plt.ylim(0.68, 0.98)
-
-plt.tight_layout()
-plt.show()
+# print(t_grid)
+# while True:
+probs = []
+# 预计算 F_Tab(t) 对 grid points t 的值
+F_Tab_grid = np.array([calculate_access_time_cdf(t, N_values, phi_grid) for t in t_grid])
+rho = lam / (n_servers * mu)
+# 1. 计算 f_Ts(t) 对 grid points t 的值
+f_Ts_grid = mmn_pdf_sojourn_time(t_grid, mu, n_servers, lam)
+# 2. 计算任务完成概率的被积函数
+integrand_values = F_Tab_grid * f_Ts_grid
+# 3. 使用梯形法则进行最终积分
+prob = np.trapezoid(integrand_values, t_grid)
+# print(prob)
+probs.append(1 - prob)
+results[n_servers] = probs
+print(results)
