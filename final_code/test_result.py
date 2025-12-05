@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import quad
 import math
@@ -24,6 +23,7 @@ def calculate_phi_max(R, h, gamma_deg):
         phi_max = np.arcsin(sin_arg) - gamma_rad / 2
     else:
         phi_max = np.arccos(R / (R + h))
+    print(f"phi_max={np.degrees(phi_max)}")
     # 当 h_km 过低时可能发生，确保返回地球视界角
     return phi_max
 
@@ -158,7 +158,7 @@ def calculate_min_satellites(f, lambda_task, mu, tau, P_task):
 # ==========================================
 # 8. 计算搜索半径 R_search
 # ==========================================
-def calculate_search_radius(N_min, R1, R2, lambda_eff):
+def calculate_search_radius(N_min, R1, R2, h1, h2, lambda_eff):
     """
     根据所需卫星数 N_min 反推搜索半径。
     """
@@ -166,35 +166,104 @@ def calculate_search_radius(N_min, R1, R2, lambda_eff):
         return float('inf')  # 密度为0，半径无穷大
 
     term1 = (N_min * R2) / (lambda_eff * np.pi * R1)
-    term2 = (R2 - R1) ** 2
+    term2 = (h2 - h1) ** 2
     return np.sqrt(term1 + term2)
 
 
-def plot_results(N_sen, N_com, h_compute, h_sensing, gamma_beam_deg, tau_factor, lambda_task, mu_service, f, P):
+# ==========================================
+# 主函数: 参数配置与流程控制
+# ==========================================
+def main():
+    # -------------------------------------------------
+    # A. 参数配置区
+    # -------------------------------------------------
+
+    # 1. 轨道参数
+    h_compute = 300e3  # 计算层高度 (米)
+    h_sensing = 600e3  # 感知层高度 (米)
+
+    # 2. 波束参数
+    gamma_beam_deg = 130.0  # 波束宽度 (度)
+
+    # 3. 卫星总数 (用于密度计算)
+    N_total_sensing = 300  # 感知层总星数 (用于接入角分布)
+    N_total_compute = 1000  # 计算层总星数 (用于计算资源密度)
+
+    # 4. 任务与排队参数 (输入您指定的数值)
+    input_lambda = 5.0  # 任务到达率数值
+    unit_lambda = 'hour'  # 单位: 'hour' (个/小时)
+
+    input_mu = 10.0  # 任务完成率数值
+    unit_mu = 'hour'  # 单位: 'hour' (个/小时)
+
+    # 时间限制系数 (截止时间 = 系数 * 平均接入时间)
+    tau_factor = 0.9
+
+    param_f = 0.1  # 串行比例 (10%)
+    target_P = 0.90  # 目标完成率 (95%)
+    # -------------------------------------------------
+
+    # B. 自动单位换算 (统一转换为 "秒")
+    # 1小时 = 3600秒
+    lambda_task = input_lambda / 3600.0
+    mu_service = input_mu / 3600.0
+
+    print(f"--- 参数换算结果 ---")
+    print(f"任务到达率 (λ): {input_lambda}/{unit_lambda} -> {lambda_task:.6f} 个/秒")
+    print(f"任务服务率 (μ): {input_mu}/{unit_mu}    -> {mu_service:.6f} 个/秒")
+
+    # 检查系统稳定性
+    if lambda_task >= mu_service:
+        print("\n[错误] 系统过载! 到达率 λ ({:.4f}) >= 服务率 μ ({:.4f})".format(lambda_task, mu_service))
+        return
+
+    # C. 几何参数计算
+    R_comp = R_E + h_compute
+    R_sens = R_E + h_sensing
+
+    # 计算层原始密度
+    lambda_real = N_total_compute / (4 * np.pi * R_comp ** 2)
+    print(f"感知层原始密度: {lambda_real} 个/秒")
+
+
+    # -------------------------------------------------
+    # D. 仿真执行流程
+    # -------------------------------------------------
+
     # [步骤 1] 计算最大接入角 phi_max
+    # 注意：这里会用到上面更新后的 gamma_0
     phi_m = calculate_phi_max(R_E, h_sensing, gamma_beam_deg)
     print(f"\n[1] 最大接入角 (phi_max):{np.degrees(phi_m):.2f}度")
 
     # [步骤 2] 计算平均接入时间
-    avg_time = calculate_average_access_time(R_E, h_sensing, GM, phi_m, N_sen)
+    avg_time = calculate_average_access_time(R_E, h_sensing, GM, phi_m, N_total_sensing)
     print(f"[2] 平均接入时间: {avg_time:.4f} 秒")
+
     # [步骤 2.5] 确定截止时间 tau (根据用户设定的系数)
     tau_deadline = tau_factor * avg_time
     print(f"    -> 设定截止时间 (tau): {tau_deadline:.4f} 秒 (平均时间的 {tau_factor} 倍)")
+
     # [步骤 3] 计算 MPPP 可用性
     p_avail = calculate_p_available(lambda_task, mu_service, avg_time)
-    lambda_real = N_com / (4 * np.pi * (R_E + h_compute) ** 2)
-    print(f"    实际卫星密度: {lambda_real:.2e} sat/m^2")
+    print(f"[1] 感知层原始密度: {lambda_real:.4f} 个/秒")
     lambda_eff = lambda_real * p_avail
     print(f"[3] 卫星可用概率: {p_avail:.4f}")
     print(f"    有效卫星密度: {lambda_eff:.2e} sat/m^2")
+
+    if p_avail == 0:
+        print("警告: 可用概率为0，仿真提前结束。")
+        return
+
     # [步骤 4] 反解所需最少卫星数 N_min
-    N_min = calculate_min_satellites(f, lambda_task, mu_service, tau_deadline, P)
+    N_min = calculate_min_satellites(param_f, lambda_task, mu_service, tau_deadline, target_P)
     print(f"[4] 满足条件所需最少卫星数: {N_min}")
+
     # [步骤 5] 计算搜索半径 R_search
-    R_comp = R_E + h_compute
-    R_sens = R_E + h_sensing
-    R_s = calculate_search_radius(N_min, R_comp, R_sens, lambda_eff)
+    R_s = calculate_search_radius(N_min, R_comp, R_sens, h_compute, h_sensing, lambda_eff)
+
+    # -------------------------------------------------
+    # E. 结果验证
+    # -------------------------------------------------
     if math.isinf(R_s):
         print(f"[5] 搜索半径: 无穷大 (Infinity)")
         print("原因: 有效密度过低或所需卫星数过多，无法在有限半径内找到足够卫星。")
@@ -216,91 +285,7 @@ def plot_results(N_sen, N_com, h_compute, h_sensing, gamma_beam_deg, tau_factor,
             final_prob = 1 - np.exp(-(mu_new - lambda_task) * tau_deadline)
         print(f"  -> 最终任务完成率: {final_prob:.4f} (目标: {target_P})")
 
-    return R_s, N_min
 
-
-# -------------------------------------------------
-# A. 参数配置区
-# -------------------------------------------------
-
-# 1. 轨道参数
-h_compute = 300e3  # 计算层高度 (米)
-h_sensing = 600e3  # 感知层高度 (米)
-
-# 2. 波束参数
-gamma_beam_deg = 110.0  # 波束宽度 (度)
-gamma_list = np.linspace(110, 130, 20)
-# 3. 卫星总数 (用于密度计算)
-N_total_sensing = 300  # 感知层总星数 (用于接入角分布)
-N_total_compute = 1000  # 计算层总星数 (用于计算资源密度)
-
-# 4. 任务与排队参数 (输入您指定的数值)
-input_lambda = 5.0  # 任务到达率数值
-input_mu = 10.0  # 任务完成率数值
-# 单位换算 (统一转换为 "秒")
-# 1小时 = 3600秒
-lambda_task = input_lambda / 3600.0
-mu_service = input_mu / 3600.0
-
-# 5. 时间限制系数 (截止时间 = 系数 * 平均接入时间)
-tau_factor = 0.9
-
-param_f = 0.1  # 串行比例 (10%)
-target_P = 0.90  # 目标完成率 (95%)
-# -------------------------------------------------
-# result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, gamma_beam_deg, tau_factor, lambda_task,mu_service, param_f, target_P)
-# print("搜索半径:", result[0], "km")
-# print("所需卫星数:", result[1])
-r_result = []
-n_result = []
-for i in gamma_list:
-    result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, i, tau_factor, lambda_task,
-                          mu_service, param_f, target_P)
-    r_result.append(result[0])
-    n_result.append(result[1])
-# plt.figure(1)
-# plt.plot(gamma_list, r_result, label='Search Radius')
-# plt.legend()
-# plt.xlabel('Beam Width (Degree)')
-# plt.ylabel('Value')
-# plt.grid()
-# plt.figure(2)
-# plt.plot(gamma_list, n_result, label='Number of Satellites')
-# plt.legend()
-# plt.xlabel('Beam Width (Degree)')
-# plt.ylabel('Value')
-# plt.grid()
-# plt.show()
-
-# ==========================================
-# 2. 绘图：双 Y 轴
-# ==========================================
-fig, ax1 = plt.subplots(figsize=(8, 6))
-
-# --- 绘制左侧 Y 轴曲线 (Search Radius) ---
-color1 = 'tab:blue'
-ax1.set_xlabel(fr'Beam Width ($^\circ$)', fontsize=12)
-ax1.set_ylabel('Search Radius (m)', color=color1, fontsize=12)
-line1 = ax1.plot(gamma_list, r_result, color=color1, linewidth=2, label='Search Radius')
-ax1.tick_params(axis='y', labelcolor=color1)
-ax1.grid(True, linestyle='--')
-
-# --- 创建共享 X 轴的右侧 Y 轴 ---
-ax2 = ax1.twinx()
-
-# --- 绘制右侧 Y 轴曲线 (Number of Satellites) ---
-color2 = 'tab:orange'
-ax2.set_ylabel('Number of Satellites', color=color2, fontsize=12)
-# 使用虚线区分
-line2 = ax2.plot(gamma_list, n_result, color=color2, linewidth=2, linestyle='--', label='Number of Satellites')
-ax2.tick_params(axis='y', labelcolor=color2)
-
-# --- 合并图例 ---
-# 因为用了两个轴，需要手动合并图例
-lines = line1 + line2
-labels = [l.get_label() for l in lines]
-ax1.legend(lines, labels, loc='best', fontsize=11)
-
-# plt.title("Double Y-Axis Comparison", fontsize=14)
-plt.tight_layout()
-plt.show()
+# 运行主程序
+if __name__ == "__main__":
+    main()
