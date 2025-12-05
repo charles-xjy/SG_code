@@ -14,27 +14,20 @@ R = 6371.0e3  # Radius of Earth in meters (6371 km)
 
 # --- 2. 核心函数定义（与理论计算部分相同） ---
 def calculate_phi_max(h_km, gamma_deg):
-    """
-    计算最大访问角 phi_max (公式 1)
-    """
-    h = h_km * 1000  # 转换为米
+    """计算最大访问角 phi_max (公式 1)"""
+    h = h_km * 1000
+    print(f"gamma_deg={gamma_deg}")
     gamma_rad = np.radians(gamma_deg)
-
-    # 仅使用由波束宽度决定的第一个条件，除非它超出物理限制
-    try:
+    gamma_0 = np.arcsin(R / (R + h)) * 2
+    print(f"gamma_0={np.degrees(gamma_0)}")
+    if gamma_0 > gamma_rad:
         sin_arg = (R + h) / R * np.sin(gamma_rad / 2)
-        if sin_arg > 1:
-            # 超过波束宽度限制，使用由轨道高度决定的第二种情况
-            phi_max = np.arccos(R / (R + h))
-        else:
-            phi_max = np.arcsin(sin_arg) - gamma_rad / 2
-
-        # 确保 phi_max 不超过高度决定的最大可能角度
-        phi_max_h = np.arccos(R / (R + h))
-        return min(phi_max, phi_max_h)
-
-    except ValueError:
-        return np.arccos(R / (R + h))
+        phi_max = np.arcsin(sin_arg) - gamma_rad / 2
+    else:
+        phi_max = np.arccos(R / (R + h))
+    print(f"phi_max={np.degrees(phi_max)}")
+    # 当 h_km 过低时可能发生，确保返回地球视界角
+    return phi_max
 
 
 def pdf_phi_0(phi, N):
@@ -138,17 +131,17 @@ def plot_cdf_validation(h_km_list, N_satellites, gamma_deg, K_samples=100000):
     for h_km in h_km_list:
         # 理论 CDF
         cdf_theory_values = [cdf_T_AB_theory(t, h_km, N_satellites, gamma_deg) for t in times]
-        plt.plot(times, cdf_theory_values, label=f'Theo $h={h_km}km$')
+        plt.plot(times, cdf_theory_values, label=f'ANA $h={h_km}km$')
         # 蒙特卡洛仿真
         T_AB_samples = monte_carlo_simulation(h_km, N_satellites, gamma_deg, K_samples)
         # 计算仿真 CDF
         cdf_sim_values = [np.sum(T_AB_samples < t) / K_samples for t in times]
         plt.plot(times, cdf_sim_values, marker='.', linestyle='--', markersize=6,
-                 label=f'Sim $h={h_km}km$')
+                 label=f'MC $h={h_km}km$')
 
     plt.xlabel('Time(s)')
     plt.ylabel('CDF of the access time')
-    plt.title(fr'Access Time CDF: Theory vs. Monte Carlo Simulation (N={N_satellites}, $\gamma={gamma_deg}^\circ$)')
+    # plt.title(fr'Access Time CDF: Theory vs. Monte Carlo Simulation (N={N_satellites}, $\gamma={gamma_deg}^\circ$)')
     plt.legend()
     plt.grid(True, linestyle='--')
     plt.ylim(0, 1.05)
@@ -170,7 +163,7 @@ def plot_cdf_validation_varying_N(N_list, h_km, gamma_deg, K_samples=200000):
         # 理论 CDF (实线)
         print(f"Calculating Theory CDF for N={N_sat}...")
         cdf_theory_values = [cdf_T_AB_theory(t, h_km, N_sat, gamma_deg) for t in times]
-        plt.plot(times, cdf_theory_values, label=f'Theo $N={N_sat}$', linestyle='-')
+        plt.plot(times, cdf_theory_values, label=f'ANA $N={N_sat}$', linestyle='-')
 
         # 蒙特卡洛仿真 (虚线/点线)
         print(f"Running Simulation for N={N_sat} with {K_samples} samples...")
@@ -179,13 +172,13 @@ def plot_cdf_validation_varying_N(N_list, h_km, gamma_deg, K_samples=200000):
         # 计算仿真 CDF
         cdf_sim_values = [np.sum(T_AB_samples < t) / K_samples for t in times]
         plt.plot(times, cdf_sim_values, marker='.', linestyle='--', markersize=6,
-                 label=f'Sim $N={N_sat}$')
+                 label=f'MC $N={N_sat}$')
 
     plt.xlabel('Time (s)')
     plt.ylabel('CDF of the access time')
 
     # 标题使用原始 f-string 修复转义警告，并显示固定参数 h 和 gamma
-    plt.title(fr'Access Time CDF: Varying $N$ ($h={h_km}km$, $\gamma={gamma_deg}^\circ$)')
+    # plt.title(fr'Access Time CDF: Varying $N$ ($h={h_km}km$, $\gamma={gamma_deg}^\circ$)')
 
     plt.legend()
     plt.grid(True, linestyle='--')

@@ -12,18 +12,18 @@ R = 6371.0e3  # Radius of Earth in meters (6371 km)
 def calculate_phi_max(h_km, gamma_deg):
     """计算最大访问角 phi_max (公式 1)"""
     h = h_km * 1000
+    print(f"gamma_deg={gamma_deg}")
     gamma_rad = np.radians(gamma_deg)
-    try:
+    gamma_0 = np.arcsin(R / (R + h)) * 2
+    print(f"gamma_0={np.degrees(gamma_0)}")
+    if gamma_0 > gamma_rad:
         sin_arg = (R + h) / R * np.sin(gamma_rad / 2)
-        if sin_arg > 1:
-            phi_max = np.arccos(R / (R + h))
-        else:
-            phi_max = np.arcsin(sin_arg) - gamma_rad / 2
-        phi_max_h = np.arccos(R / (R + h))
-        return min(phi_max, phi_max_h)
-    except ValueError:
-        # 当 h_km 过低时可能发生，确保返回地球视界角
-        return np.arccos(R / (R + h))
+        phi_max = np.arcsin(sin_arg) - gamma_rad / 2
+    else:
+        phi_max = np.arccos(R / (R + h))
+    print(f"phi_max={np.degrees(phi_max)}")
+    # 当 h_km 过低时可能发生，确保返回地球视界角
+    return phi_max
 
 
 # --- Z. 自定义双重积分器 (纯 Python实现，使用梯形法则) ---
@@ -164,15 +164,15 @@ def plot_average_T_AB_validation_varying_H(H_list, N_sat, gamma_deg, K_samples=5
         T_AB_samples = monte_carlo_simulation(h_km, N_sat, gamma_deg, K_samples)
         mean_sim = np.mean(T_AB_samples)
         sim_means.append(mean_sim)
-    plt.plot(H_list, theory_means, label=f'ANA (Custom Pure Python, {N_points} pts)')
-    plt.plot(H_list, sim_means, label=f'MC ({K_samples} samples)', linestyle='--', markersize=5,
+    plt.plot(H_list, theory_means, label=fr'ANA ($\gamma={gamma_deg}^\circ$)')
+    plt.plot(H_list, sim_means, label=fr'MC ($\gamma={gamma_deg}^\circ$)', linestyle='--', markersize=5,
              marker='.')
     # 更改横轴为高度 h (km)
     plt.xlabel('Satellite Altitude $h$ (km)')
     # 纵轴为平均访问时间
     plt.ylabel(r'Average Access Time $\overline{T}_{AB}$ (s)')
     # 更改标题，固定参数为 N 和 gamma
-    plt.title(fr'Average Access Time vs. $h$ ($N={N_sat}$, $\gamma={gamma_deg}^\circ$)')
+    # plt.title(fr'Average Access Time vs. $h$ ($N={N_sat}$, $\gamma={gamma_deg}^\circ$)')
     plt.legend()
     plt.grid(True, linestyle='--')
 
@@ -191,14 +191,14 @@ def plot_average_T_AB_validation_varying_H(H_list, N_sat, gamma_deg, K_samples=5
 # --- 6. 执行验证（复现图 4 参数 - 更改横轴为 H） ---
 
 # 假设复现图 4 的参数：
-H_list_fig4 = np.linspace(1000, 2800, 50)
+H_list_fig4 = np.linspace(500, 1500, 50)
 N_sat_fig4 = 800  # 固定卫星总数 N
-gamma_fig4 = 90  # 固定波束宽度 gamma (degrees)
+gamma_fig4 = 80  # 固定波束宽度 gamma (degrees)
 K_sim = 5000  # 蒙特卡洛样本数
 N_int_points = 50  # 自定义积分点数
 
 # 运行平均访问时间验证
 plot_average_T_AB_validation_varying_H(H_list_fig4, N_sat_fig4, gamma_fig4, K_sim, N_int_points)
-plot_average_T_AB_validation_varying_H(H_list_fig4, N_sat_fig4, 95, K_sim, N_int_points)
+plot_average_T_AB_validation_varying_H(H_list_fig4, N_sat_fig4, 90, K_sim, N_int_points)
 plot_average_T_AB_validation_varying_H(H_list_fig4, N_sat_fig4, 100, K_sim, N_int_points)
 plt.show()

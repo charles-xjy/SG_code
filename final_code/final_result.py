@@ -12,25 +12,20 @@ GM = 3.986004418e14  # 地球引力参数 (m^3/s^2)
 # ==========================================
 # 1. 计算最大接入角 phi_max
 # ==========================================
-def calculate_phi_max(R, h, gamma):
-    """
-    根据波束宽度 gamma 和临界角 gamma_0 计算最大地心接入角。
-    """
-    gamma_0 = np.arcsin(R / (R + h)) / 2.0
-    print(f"临界角 gamma_0 (计算值): {np.degrees(gamma_0):.2f} 度")
-    # 为了数值稳定性，先进行范围截断
-    if gamma < gamma_0:
-        # 情况1: 波束受限
-        # 公式: arcsin( (R+h)/R * sin(gamma/2) ) - gamma/2
-        sin_val = (R + h) / R * np.sin(gamma / 2)
-        sin_val = np.clip(sin_val, -1.0, 1.0)  # 防止 arcsin 越界
-        return np.arcsin(sin_val) - gamma / 2
+def calculate_phi_max(R, h, gamma_deg):
+    """计算最大访问角 phi_max (公式 1)"""
+    print(f"gamma_deg={gamma_deg}")
+    gamma_rad = np.radians(gamma_deg)
+    gamma_0 = np.arcsin(R / (R + h)) * 2
+    print(f"gamma_0={np.degrees(gamma_0)}")
+    if gamma_0 > gamma_rad:
+        sin_arg = (R + h) / R * np.sin(gamma_rad / 2)
+        phi_max = np.arcsin(sin_arg) - gamma_rad / 2
     else:
-        # 情况2: 视距受限 (由地球遮挡决定)
-        # 公式: arccos( R/(R+h) )
-        cos_val = R / (R + h)
-        cos_val = np.clip(cos_val, -1.0, 1.0)
-        return np.arccos(cos_val)
+        phi_max = np.arccos(R / (R + h))
+    print(f"phi_max={np.degrees(phi_max)}")
+    # 当 h_km 过低时可能发生，确保返回地球视界角
+    return phi_max
 
 
 # ==========================================
@@ -71,7 +66,9 @@ def calculate_average_access_time(R, h, GM, phi_max, N):
         return inner_integral(phi) * pdf_phi_0(phi, N)
 
     result, error = quad(outer_integral, 0, phi_max)
-    return T_coeff * result
+    T_average = T_coeff * result
+    print(f"T_average={T_average}")
+    return T_average
 
 
 # ==========================================
@@ -186,7 +183,7 @@ def main():
     h_sensing = 600e3  # 感知层高度 (米)
 
     # 2. 波束参数
-    gamma_beam_deg = 80.0  # 波束宽度 (度)
+    gamma_beam_deg = 130.0  # 波束宽度 (度)
 
     # 3. 卫星总数 (用于密度计算)
     N_total_sensing = 200  # 感知层总星数 (用于接入角分布)
@@ -196,14 +193,14 @@ def main():
     input_lambda = 5.0  # 任务到达率数值
     unit_lambda = 'hour'  # 单位: 'hour' (个/小时)
 
-    input_mu = 8.0  # 任务完成率数值
+    input_mu = 10.0  # 任务完成率数值
     unit_mu = 'hour'  # 单位: 'hour' (个/小时)
 
     # 时间限制系数 (截止时间 = 系数 * 平均接入时间)
-    tau_factor = 0.8
+    tau_factor = 0.9
 
     param_f = 0.1  # 串行比例 (10%)
-    target_P = 0.95  # 目标完成率 (95%)
+    target_P = 0.90  # 目标完成率 (95%)
     # -------------------------------------------------
 
     # B. 自动单位换算 (统一转换为 "秒")
@@ -223,7 +220,6 @@ def main():
     # C. 几何参数计算
     R_comp = R_E + h_compute
     R_sens = R_E + h_sensing
-    gamma_rad = np.radians(gamma_beam_deg)
 
     # 计算层原始密度
     lambda_real = N_total_compute / (4 * np.pi * R_comp ** 2)
@@ -234,7 +230,7 @@ def main():
 
     # [步骤 1] 计算最大接入角 phi_max
     # 注意：这里会用到上面更新后的 gamma_0
-    phi_m = calculate_phi_max(R_E, h_sensing, gamma_rad)
+    phi_m = calculate_phi_max(R_E, h_sensing, gamma_beam_deg)
     print(f"\n[1] 最大接入角 (phi_max):{np.degrees(phi_m):.2f}度")
 
     # [步骤 2] 计算平均接入时间
@@ -276,7 +272,6 @@ def main():
         N_check = calculate_N_eff(lambda_eff, S_final)
 
         print(f"\n[验证环节]")
-        print(f"  -> 覆盖面积: {S_final / 1e6:.2f} km^2")
         print(f"  -> 实际获取卫星数: {N_check}")
 
         speedup = amdahl_speedup(param_f, N_check)
@@ -285,7 +280,6 @@ def main():
         final_prob = 0.0
         if mu_new > lambda_task:
             final_prob = 1 - np.exp(-(mu_new - lambda_task) * tau_deadline)
-
         print(f"  -> 最终任务完成率: {final_prob:.4f} (目标: {target_P})")
 
 
