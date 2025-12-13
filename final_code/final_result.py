@@ -201,21 +201,6 @@ def plot_results(N_sen, N_com, h_compute, h_sensing, gamma_beam_deg, tau_factor,
     else:
         print(f"[5] 搜索半径: {R_s / 1000:.2f} km")
 
-        # 验证计算
-        S_final = calculate_S(R_comp, R_sens, R_s)
-        N_check = calculate_N_eff(lambda_eff, S_final)
-
-        print(f"\n[验证环节]")
-        print(f"  -> 实际获取卫星数: {N_check}")
-
-        speedup = amdahl_speedup(param_f, N_check)
-        mu_new = mu_service * speedup
-
-        final_prob = 0.0
-        if mu_new > lambda_task:
-            final_prob = 1 - np.exp(-(mu_new - lambda_task) * tau_deadline)
-        print(f"  -> 最终任务完成率: {final_prob:.4f} (目标: {target_P})")
-
     return R_s, N_min
 
 
@@ -224,12 +209,11 @@ def plot_results(N_sen, N_com, h_compute, h_sensing, gamma_beam_deg, tau_factor,
 # -------------------------------------------------
 
 # 1. 轨道参数
-h_compute = 300e3  # 计算层高度 (米)
-h_sensing = 600e3  # 感知层高度 (米)
+h_compute = 550e3  # 计算层高度 (米)
+h_sensing = 1000e3  # 感知层高度 (米)
 
 # 2. 波束参数
-gamma_beam_deg = 110.0  # 波束宽度 (度)
-gamma_list = np.linspace(110, 130, 20)
+gamma_list = np.linspace(80, 120, 40)
 # 3. 卫星总数 (用于密度计算)
 N_total_sensing = 300  # 感知层总星数 (用于接入角分布)
 N_total_compute = 1000  # 计算层总星数 (用于计算资源密度)
@@ -245,62 +229,85 @@ mu_service = input_mu / 3600.0
 # 5. 时间限制系数 (截止时间 = 系数 * 平均接入时间)
 tau_factor = 0.9
 
-param_f = 0.1  # 串行比例 (10%)
-target_P = 0.90  # 目标完成率 (95%)
+target_P = 0.9  # 目标完成率
 # -------------------------------------------------
 # result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, gamma_beam_deg, tau_factor, lambda_task,mu_service, param_f, target_P)
 # print("搜索半径:", result[0], "km")
 # print("所需卫星数:", result[1])
 r_result = []
+r_result2 = []
+r_result3 = []
 n_result = []
+n_result2 = []
+n_result3 = []
+param_f = 0.05  # 串行比例 (10%)
+param_f2 = 0.15
+param_f3 = 0.1
+
 for i in gamma_list:
     result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, i, tau_factor, lambda_task,
                           mu_service, param_f, target_P)
     r_result.append(result[0])
     n_result.append(result[1])
-# plt.figure(1)
-# plt.plot(gamma_list, r_result, label='Search Radius')
-# plt.legend()
-# plt.xlabel('Beam Width (Degree)')
-# plt.ylabel('Value')
-# plt.grid()
-# plt.figure(2)
-# plt.plot(gamma_list, n_result, label='Number of Satellites')
-# plt.legend()
-# plt.xlabel('Beam Width (Degree)')
-# plt.ylabel('Value')
-# plt.grid()
+    result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, i, tau_factor, lambda_task,
+                          mu_service, param_f2, target_P)
+    r_result2.append(result[0])
+    n_result2.append(result[1])
+    result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, i, tau_factor, lambda_task,
+                          mu_service, param_f3, target_P)
+    r_result3.append(result[0])
+    n_result3.append(result[1])
+
+plt.figure(1)
+plt.plot(gamma_list, r_result, label=f'f={param_f}')
+plt.plot(gamma_list, r_result2, label=f'f={param_f2}')
+plt.plot(gamma_list, r_result3, label=f'f={param_f3}')
+plt.legend()
+# 只要设定上限，下限自动
+plt.ylim(top=2 * r_result3[0])
+plt.xlabel(fr'Beam Width ($^\circ$)')
+plt.ylabel('Search Radius (m)')
+plt.grid()
+plt.figure(2)
+plt.plot(gamma_list, n_result, label=f'f={param_f}')
+plt.plot(gamma_list, n_result2, label=f'f={param_f2}')
+plt.plot(gamma_list, n_result3, label=f'f={param_f3}')
+plt.legend()
+plt.ylim(0, top=2 * n_result3[0])
+plt.xlabel(fr'Beam Width ($^\circ$)')
+plt.ylabel('Number of Satellites')
+plt.grid()
 # plt.show()
 
-# ==========================================
-# 2. 绘图：双 Y 轴
-# ==========================================
-fig, ax1 = plt.subplots(figsize=(8, 6))
-
-# --- 绘制左侧 Y 轴曲线 (Search Radius) ---
-color1 = 'tab:blue'
-ax1.set_xlabel(fr'Beam Width ($^\circ$)', fontsize=12)
-ax1.set_ylabel('Search Radius (m)', color=color1, fontsize=12)
-line1 = ax1.plot(gamma_list, r_result, color=color1, linewidth=2, label='Search Radius')
-ax1.tick_params(axis='y', labelcolor=color1)
-ax1.grid(True, linestyle='--')
-
-# --- 创建共享 X 轴的右侧 Y 轴 ---
-ax2 = ax1.twinx()
-
-# --- 绘制右侧 Y 轴曲线 (Number of Satellites) ---
-color2 = 'tab:orange'
-ax2.set_ylabel('Number of Satellites', color=color2, fontsize=12)
-# 使用虚线区分
-line2 = ax2.plot(gamma_list, n_result, color=color2, linewidth=2, linestyle='--', label='Number of Satellites')
-ax2.tick_params(axis='y', labelcolor=color2)
-
-# --- 合并图例 ---
-# 因为用了两个轴，需要手动合并图例
-lines = line1 + line2
-labels = [l.get_label() for l in lines]
-ax1.legend(lines, labels, loc='best', fontsize=11)
-
-# plt.title("Double Y-Axis Comparison", fontsize=14)
-plt.tight_layout()
+f_list = np.linspace(0.1, 0.15, 30)
+tau_factor_1 = 0.85
+tau_factor_2 = 0.9
+tau_factor_3 = 0.95
+gamma_beam_deg = 90.0  # 波束宽度 (度)
+n_result4 = []
+n_result5 = []
+n_result6 = []
+for f in f_list:
+    result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, gamma_beam_deg, tau_factor_1,
+                          lambda_task,
+                          mu_service, f, target_P)
+    # r_result.append(result[0])
+    n_result4.append(result[1])
+    result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, gamma_beam_deg, tau_factor_2,
+                          lambda_task,
+                          mu_service, f, target_P)
+    n_result5.append(result[1])
+    result = plot_results(N_total_sensing, N_total_compute, h_compute, h_sensing, gamma_beam_deg, tau_factor_3,
+                          lambda_task,
+                          mu_service, f, target_P)
+    n_result6.append(result[1])
+plt.figure(3)
+plt.plot(f_list, n_result4, label=fr'$\tau$={tau_factor_1}')
+plt.plot(f_list, n_result5, label=fr'$\tau$={tau_factor_2}')
+plt.plot(f_list, n_result6, label=fr'$\tau$={tau_factor_3}')
+plt.legend()
+# plt.ylim(0, top=2 * n_result6[0])
+plt.xlabel(fr'Serial Ratio ($f$)')
+plt.ylabel('Number of Satellites')
+plt.grid()
 plt.show()
